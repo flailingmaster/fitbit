@@ -1,0 +1,1 @@
+This is a Drupal module for integrating with the Fitbit API and importing data into Drupal for further analysis.

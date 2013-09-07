@@ -1,0 +1,7 @@
+<?php
+
+/**
+* @file
+* Admin functions
+*/
+

@@ -1,0 +1,9 @@
+name = Fitbit
+description = Provides integration with the Fitbit API
+core = 7.x
+package = "Quantified Self"
+configure = admin/config/fitbit
+dependencies[] = oauth_common
+dependencies[] = http_client_oauth
+
+files[] = fitbit.admin.inc
