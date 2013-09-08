@@ -5,6 +5,8 @@
 * Admin functions
 */
 
+require_once ('fitbit.devices.inc');
+
 /**
  * Implements hook_admin()
  */
@@ -42,18 +44,22 @@ function fitbit_admin_tester($form, &$form_state) {
   global $user;
   $form = array();
 
-  if (!fitbit_get_user_keys($user->uid)) {
-    drupal_set_message(t('You have not connected your account to the Fitbit API yet.'), 'error');
-    
-    $form['account_link'] = array(
-      '#type' => 'link',
-      '#title' => t('Edit your account'),
-      '#href' => 'user/' . $user->uid . '/edit',
-    );
+  $key = variable_get('fitbit_key');
 
+  if ($client = fitbit_get_access_client($user->uid)) {
+    $devices = fitbit_get_devices($user->uid, $client);
+
+    
     return $form;
   }
-  
-    
+
+  drupal_set_message(t('You have not connected your account to the Fitbit API yet.'), 'error');
+
+  $form['account_link'] = array(
+    '#type' => 'link',
+    '#title' => t('Edit your account'),
+    '#href' => 'user/' . $user->uid . '/edit',
+  );
+
   return $form;
 }

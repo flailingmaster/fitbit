@@ -73,7 +73,7 @@ function fitbit_form_user_profile_form_alter(&$form, &$form_submit) {
   $consumer = DrupalOAuthConsumer::load($key, FALSE);
 
   if (isset($key) && isset($secret)) {
-    if($client = fitbit_get_access_client($user->uid, $key, $secret)) {
+    if($client = fitbit_get_access_client($user->uid, $key)) {
       $form['fitbit']['fitbit_disconnect'] = array(
         '#type' => 'submit',
         '#value' => t('Disconnect from Fitbit'),
@@ -112,7 +112,7 @@ function fitbit_connect_submit($form, &$form_state) {
 
   if (!$consumer) {
     $consumer = new DrupalOAuthConsumer($key, $secret);
-    $consumer->write(); 
+    $consumer->write();
   }
 
   $sig_method = DrupalOAuthClient::signatureMethod();
@@ -188,17 +188,6 @@ function fitbit_oauth_callback($form, &$form_state) {
 
     $request_token->delete();
 
-    drupal_set_message($access_token->tid);
-
-    //TODO: Handle errors
-    // db_insert('{fitbit_users}')
-    //   ->fields(array(
-    //     'uid' => $user->uid,
-    //     'oauth_access_token' => $access_token->tid,
-    //     ))
-    //   ->execute();
-
-
     drupal_set_message(t('You have successfully authorized access to Fitbit'));
   }
   else {
@@ -212,25 +201,25 @@ function fitbit_oauth_callback($form, &$form_state) {
 /**
  * Retrieves an access client with the correct access token for a user
  */
-function fitbit_get_access_client($uid, $key, $secret) {
+function fitbit_get_access_client($uid) {
   $retval = FALSE;
 
-  if (isset($key) && isset($secret)) {
-    $result = db_query("SELECT token_key FROM {oauth_common_token} WHERE uid=" . $uid); //TODO: rename dbfields
+  $result = db_query("SELECT tid FROM {oauth_common_token} WHERE uid=" . $uid);
 
-    if($tid = $result->fetchAssoc()) {
-      $tid = $tid['token_key']; //TODO: rename dbfields
-      $key = variable_get('fitbit_key');
-      $consumer = DrupalOAuthConsumer::load($key, FALSE);
-      $access_token = DrupalOAuthToken::loadById($tid, FALSE);
+  if($tid = $result->fetchAssoc()) {
+    $tid = $tid['tid'];
 
-      $sig_method = DrupalOAuthClient::signatureMethod();
-      $auth = new HttpClientOAuth($consumer, $access_token, $sig_method, TRUE, TRUE);
-      $formatter = new HttpClientBaseFormatter(HttpClientBaseFormatter::FORMAT_JSON);
-      $client = new HttpClient($auth, $formatter);
+    $key = variable_get('fitbit_key');
+    $consumer = DrupalOAuthConsumer::load($key, FALSE);
+    $access_token = DrupalOAuthToken::loadById($tid, FALSE);
 
-      $retval = $client;
-    }
+    $sig_method = DrupalOAuthClient::signatureMethod();
+    $auth = new HttpClientOAuth($consumer, $access_token, $sig_method, TRUE, TRUE);
+    $formatter = new HttpClientBaseFormatter(HttpClientBaseFormatter::FORMAT_JSON);
+
+    $client = new HttpClient($auth, $formatter);
+
+    $retval = $client;
   }
 
   return $retval;
