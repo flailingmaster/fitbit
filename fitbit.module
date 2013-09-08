@@ -5,3 +5,250 @@
 * Provides API integration with Fitbit
 */
 
+define ('FITBIT_BASEURL', 'https://api.fitbit.com/');
+
+define ('FITBIT_APIVER', '1');
+
+define ('FITBIT_REQUESTTOKENURL', FITBIT_BASEURL . 'oauth/request_token');
+define ('FITBIT_ACCESSTOKENURL', FITBIT_BASEURL . 'oauth/access_token');
+define ('FITBIT_AUTHORIZEURL', FITBIT_BASEURL . 'oauth/authorize');
+
+
+/**
+ * Implements hook_menu()
+ */
+function fitbit_menu() {
+  $items = array();
+
+  $items['fitbit/oauth'] = array(
+    'title' => 'Fitbit',
+    'access callback' => TRUE,
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('fitbit_oauth_callback'),
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['admin/config/services/fitbit/tester'] = array(
+    'title' => 'Fitbit tester',
+    'access callbackk' => TRUE,
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('fitbit_admin_tester'),
+    'file' => 'fitbit.admin.inc',
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('administer fitbit api settings'),
+  );
+
+  $items['admin/config/services/fitbit'] = array(
+    'type' => MENU_NORMAL_ITEM,
+    'title' => 'Fitbit API',
+    'description' => 'Settings for integrating with the API for fitbit',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('fitbit_admin'),
+    'file' => 'fitbit.admin.inc',
+    'access arguments' => array('administer fitbit api settings'),
+  );
+
+  return $items;
+}
+
+
+/**
+ * Implements hook_form_FORMID_alter()
+ * Adds the Fitbit OAuth connect/disconnect button to the user form
+ */
+function fitbit_form_user_profile_form_alter(&$form, &$form_submit) {
+  global $user;
+
+  $oauth_token;
+  $oauth_verifier;
+
+  $key = variable_get('fitbit_key');
+  $secret = variable_get('fitbit_secret');
+
+  $form['fitbit'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Fitbit',
+  );
+
+  $consumer = DrupalOAuthConsumer::load($key, FALSE);
+
+  if (isset($key) && isset($secret)) {
+    if($client = fitbit_get_access_client($user->uid, $key, $secret)) {
+      $form['fitbit']['fitbit_disconnect'] = array(
+        '#type' => 'submit',
+        '#value' => t('Disconnect from Fitbit'),
+        '#submit' => array('fitbit_disconnect_submit'),
+      );
+    }
+    else {
+     $form['fitbit']['fitbit_connect'] = array(
+        '#type' => 'submit',
+        '#value' => t('Connect with Fitbit'),
+        '#submit' => array('fitbit_connect_submit'),
+      );
+    }
+  }
+  else {
+    $form['fitbit']['fitbit_settings_message'] = array(
+      '#type' => 'markup',
+      '#markup' => t('Fitbit integration has not yet been configured on this site yet.'),
+    );
+  }
+
+  return $form;
+}
+
+
+/**
+ * Handles the action to request OAuth access to the Fitbit service
+ */
+function fitbit_connect_submit($form, &$form_state) {
+  global $base_url;
+
+  $key = variable_get('fitbit_key');
+  $secret = variable_get('fitbit_secret');
+
+  $consumer = DrupalOAuthConsumer::load($key, FALSE);
+
+  if (!$consumer) {
+    $consumer = new DrupalOAuthConsumer($key, $secret);
+    $consumer->write(); 
+  }
+
+  $sig_method = DrupalOAuthClient::signatureMethod();
+  $client = new DrupalOAuthClient($consumer, NULL, $sig_method);
+
+  try {
+    $request_token = $client->getRequestToken(FITBIT_REQUESTTOKENURL, array(
+      'callback' => $base_url . '/fitbit/oauth',
+    ));
+
+    $request_token->write();
+
+    $auth_url = $client->getAuthorizationUrl(FITBIT_AUTHORIZEURL, array(
+      'callback' => $base_url . '/fitbit/oauth',
+    ));
+
+    drupal_goto($auth_url);
+  }
+  catch (Exception $e) {
+    drupal_set_message(t('There was an error communicating with the Fitbit service.'), 'error');
+  }
+}
+
+
+/**
+ * Handles the action to delete the OAuth information for accessing the Fitbit service
+ */
+function fitbit_disconnect_submit($form, &$form_state) {
+  global $user;
+  $uid = $user->uid;
+
+  $key = variable_get('fitbit_key');
+  $secret = variable_get('fitbit_secret');
+
+  if (isset($key) && isset($secret)) {
+
+    // TODO: This is not the appropriate way to remove the key
+    $result = db_query("DELETE from {oauth_common_token} WHERE uid=" .$uid);
+
+    drupal_set_message('You have disconnected your Fitbit account.');
+  }
+  drupal_goto( '//user/' . $user->uid);
+}
+
+
+
+/**
+ * OAuth callback for Fitbit to request
+ */
+function fitbit_oauth_callback($form, &$form_state) {
+  if (isset($_GET['oauth_token']) && isset($_GET['oauth_verifier'])) {
+    global $user;
+    global $base_url;
+
+    $oauth_token = $_GET['oauth_token'];
+    $oauth_verifier = $_GET['oauth_verifier'];
+
+    $key = variable_get('fitbit_key');
+
+    $consumer = DrupalOAuthConsumer::load($key, FALSE);
+
+    $request_token = DrupalOAuthToken::loadByKey($oauth_token, $consumer, OAUTH_COMMON_TOKEN_TYPE_REQUEST);
+    $client = new DrupalOAuthClient($consumer, $request_token);
+    $access_token = $client->getAccessToken(FITBIT_ACCESSTOKENURL,
+      array(
+        'verifier' => $oauth_verifier,
+        'get' => TRUE)
+      );
+
+    $access_token->uid = $user->uid;
+    $access_token->authorized = 1;
+    $access_token->write(TRUE);
+
+    $request_token->delete();
+
+    drupal_set_message($access_token->tid);
+
+    //TODO: Handle errors
+    // db_insert('{fitbit_users}')
+    //   ->fields(array(
+    //     'uid' => $user->uid,
+    //     'oauth_access_token' => $access_token->tid,
+    //     ))
+    //   ->execute();
+
+
+    drupal_set_message(t('You have successfully authorized access to Fitbit'));
+  }
+  else {
+    drupal_set_message(t('Fitbit did not return a valid token'), 'error');
+  }
+
+  drupal_goto($base_url . '/user/' . $user->uid);
+}
+
+
+/**
+ * Retrieves an access client with the correct access token for a user
+ */
+function fitbit_get_access_client($uid, $key, $secret) {
+  $retval = FALSE;
+
+  if (isset($key) && isset($secret)) {
+    $result = db_query("SELECT token_key FROM {oauth_common_token} WHERE uid=" . $uid); //TODO: rename dbfields
+
+    if($tid = $result->fetchAssoc()) {
+      $tid = $tid['token_key']; //TODO: rename dbfields
+      $key = variable_get('fitbit_key');
+      $consumer = DrupalOAuthConsumer::load($key, FALSE);
+      $access_token = DrupalOAuthToken::loadById($tid, FALSE);
+
+      $sig_method = DrupalOAuthClient::signatureMethod();
+      $auth = new HttpClientOAuth($consumer, $access_token, $sig_method, TRUE, TRUE);
+      $formatter = new HttpClientBaseFormatter(HttpClientBaseFormatter::FORMAT_JSON);
+      $client = new HttpClient($auth, $formatter);
+
+      $retval = $client;
+    }
+  }
+
+  return $retval;
+}
+
+
+/**
+ *
+ */
+function fitbit_get_connected_users() {
+  $retval = FALSE;
+  try {
+    $result = db_query("SELECT uid FROM {fitbit_users}");
+    $retval = $result->fetchAll();
+  }
+  catch(Exception $e) {
+    //TODO:
+  }
+
+  return $retval;
+}

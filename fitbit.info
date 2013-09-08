@@ -5,5 +5,8 @@ package = "Quantified Self"
 configure = admin/config/fitbit
 dependencies[] = oauth_common
 dependencies[] = http_client_oauth
+dependencies[] = entity
 
 files[] = fitbit.admin.inc
+files[] = fitbit.cron.inc
+
